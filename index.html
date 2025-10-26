@@ -18,9 +18,17 @@
 
     /* Touch Control Styles */
     .control-pad button {
-        touch-action: manipulation; /* Prevents double-tap zoom */
-        user-select: none; /* Prevents text selection */
+        touch-action: manipulation;
+        user-select: none;
         -webkit-user-select: none;
+    }
+    /* New Restart Button Style */
+    #restartButton {
+        display: none; /* Hidden until game over */
+        transition: transform 0.1s;
+    }
+    #restartButton:active {
+        transform: scale(0.98);
     }
 </style>
 </head>
@@ -75,6 +83,9 @@
 
 <div id="messageContainer" class="w-full bg-gray-800 p-4 mt-4 rounded-xl text-center border border-gray-700">
     <p id="message" class="text-lg font-semibold text-cyan-300">Type your name and press Enter/Tap to begin!</p>
+    <button id="restartButton" class="mt-4 px-6 py-2 bg-green-600 hover:bg-green-500 text-white font-bold rounded-lg neon-border">
+        RESTART CHALLENGE
+    </button>
 </div>
 </div>
 
@@ -104,8 +115,9 @@ const message = document.getElementById("message");
 const scoreDisplay = document.getElementById("scoreDisplay");
 const livesDisplay = document.getElementById("livesDisplay");
 const controlPad = document.getElementById("controlPad");
+const restartButton = document.getElementById("restartButton"); // NEW
 
-// Control Buttons (New!)
+// Control Buttons
 const controls = {
     upBtn: document.getElementById('upBtn'),
     downBtn: document.getElementById('downBtn'),
@@ -115,7 +127,7 @@ const controls = {
     redRightBtn: document.getElementById('redRightBtn')
 };
 
-// Map button IDs to keyboard codes (New!)
+// Map button IDs to keyboard codes
 const buttonKeyMap = {
     'upBtn': 'ArrowUp',
     'downBtn': 'ArrowDown',
@@ -125,7 +137,7 @@ const buttonKeyMap = {
     'redRightBtn': 'KeyD'
 };
 
-// --- 3D Setup ---
+// --- 3D Setup (Character, Court, etc. remains the same) ---
 function createCharacter(x, y, bodyColor, headColor) {
     const group = new THREE.Group();
     group.position.set(x, y, 0);
@@ -183,7 +195,6 @@ function createCharacter(x, y, bodyColor, headColor) {
     return group;
 }
 
-// --- Court ---
 function createCourt() {
     const ground = new THREE.Mesh(new THREE.PlaneGeometry(WORLD_WIDTH, WORLD_HEIGHT), new THREE.MeshLambertMaterial({ color: 0xc8e6c8 }));
     ground.rotation.x = -Math.PI/2;
@@ -212,11 +223,12 @@ function initGame(){
     displayName = playerNameInput.value.trim();
     if(!displayName) return;
 
+    // Reset Three.js elements
     if(renderer){ container.removeChild(renderer.domElement); renderer.dispose(); }
 
     scene = new THREE.Scene(); scene.background = new THREE.Color(0x001f3f);
 
-    // Use current container dimensions
+    // Setup camera and renderer (responsive part)
     const w = container.clientWidth;
     const h = container.clientHeight;
     const aspect = w/h;
@@ -224,7 +236,7 @@ function initGame(){
     camera.position.set(0,-40,15); camera.lookAt(0,0,0);
 
     renderer = new THREE.WebGLRenderer({antialias:true});
-    renderer.setSize(w,h); // Set initial size
+    renderer.setSize(w,h);
     container.appendChild(renderer.domElement);
 
     const light = new THREE.DirectionalLight(0xffffff,1); light.position.set(10,10,20); scene.add(light);
@@ -238,6 +250,11 @@ function initGame(){
     gameOverFlash.rotation.x = -Math.PI/2; gameOverFlash.position.z=10;
     scene.add(gameOverFlash);
 
+    // Reset game state
+    score = 0; lives=3; gameOver=false; isReturning = false; isInvulnerable = false; keys = {};
+    updateDashboard();
+
+    // Create/Recreate players
     player = createCharacter(0, START_LINE_Y, 0x3B82F6,0xBFDBFE); scene.add(player);
 
     enemies = [];
@@ -249,13 +266,16 @@ function initGame(){
 
     redPlayer = createCharacter(0,10,0xFF0000,0xFF7777); scene.add(redPlayer);
 
-    score = 0; lives=3; gameOver=false; updateDashboard();
     message.textContent = `${displayName}, use the on-screen controls or keys!`;
-    playerNameInput.disabled=true; // Disable input on start
+    playerNameInput.disabled=true;
+    restartButton.style.display = 'none'; // Hide restart button
+    
+    // Start the game loop
+    if(gameLoopRef) cancelAnimationFrame(gameLoopRef);
     gameLoopRef = requestAnimationFrame(gameLoop);
 }
 
-// --- Game Loop ---
+// --- Game Loop (remains the same) ---
 function update(){
     if(gameOver) return;
     walkCycle += 0.3;
@@ -321,7 +341,7 @@ function update(){
     }
 }
 
-// --- Lose Life ---
+// --- Lose Life (UPDATED) ---
 function loseLife(){
     lives--; updateDashboard();
     gameOverFlash.material.opacity=0.5;
@@ -333,14 +353,24 @@ function loseLife(){
     player.parts.rightEye.scale.set(1,1.5,1);
 
     if(lives<=0){
+        // GAME OVER STATE
         message.textContent=`💀 ${displayName} got tagged! Final Score: ${score}`;
         gameOver=true;
-        playerNameInput.disabled=false; // Re-enable input
+        playerNameInput.disabled=false;
+        restartButton.style.display = 'block'; // SHOW RESTART BUTTON
+        
+        // Stop animation loop explicitly
+        cancelAnimationFrame(gameLoopRef);
     } else {
+        // RESET PLAYER POSITION, GRANT INVULNERABILITY
         player.position.set(0, START_LINE_Y, 0);
+        isReturning = false; // Important: reset round state
         isInvulnerable=true;
+        message.textContent=`OUCH! ${displayName} got tagged! ${lives} lives left.`;
         setTimeout(()=>{
             isInvulnerable=false;
+            message.textContent=`Go, ${displayName}! Avoid the It!`;
+            // Reset facial features after invulnerability
             player.parts.mouth.scale.set(1,1,1);
             player.parts.leftEye.scale.set(1,1,1);
             player.parts.rightEye.scale.set(1,1,1);
@@ -351,34 +381,26 @@ function loseLife(){
 // --- Game Loop Renderer ---
 function gameLoop(){ update(); renderer.render(scene,camera); if(!gameOver) gameLoopRef=requestAnimationFrame(gameLoop); }
 
-// --- Event Listeners ---
-
-// Touch/Click Control Handlers (New!)
-Object.keys(controls).forEach(key => {
-    const button = controls[key];
-    const code = buttonKeyMap[key];
-
-    // For touch devices (touchstart/touchend)
-    button.addEventListener('touchstart', (e) => {
-        e.preventDefault(); // Prevent scrolling/default behavior
-        if (!gameOver) keys[code] = true;
-    }, { passive: false });
-
-    button.addEventListener('touchend', (e) => {
-        e.preventDefault();
-        keys[code] = false;
-    }, { passive: false });
-
-    // For mouse/desktop (mousedown/mouseup as fallback)
-    button.addEventListener('mousedown', (e) => {
-        if (!gameOver) keys[code] = true;
-    });
-    button.addEventListener('mouseup', (e) => {
-        keys[code] = false;
-    });
+// --- Restart Handler (NEW) ---
+restartButton.addEventListener('click', () => {
+    // Restart the game using the last entered name
+    if (displayName) {
+        initGame();
+    } else {
+        message.textContent = "Please enter a name before starting!";
+    }
+});
+// Also allow keyboard 'R' to restart
+document.addEventListener("keydown", e => {
+    if (gameOver && e.code === "KeyR") {
+        if (displayName) {
+            initGame();
+        }
+    }
 });
 
-// Start Game via Enter key or a dedicated Tap button
+
+// --- Event Listeners (Modified Start logic) ---
 function attemptGameStart() {
     displayName = playerNameInput.value.trim();
     if(displayName && gameOver){
@@ -395,13 +417,34 @@ document.addEventListener("keydown", e=>{
 
 document.addEventListener("keyup", e=>keys[e.code]=false);
 
-// New: Start button for mobile users
+// Touch/Click Control Handlers (Remains the same as previous mobile version)
+Object.keys(controls).forEach(key => {
+    const button = controls[key];
+    const code = buttonKeyMap[key];
+
+    button.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        if (!gameOver) keys[code] = true;
+    }, { passive: false });
+
+    button.addEventListener('touchend', (e) => {
+        e.preventDefault();
+        keys[code] = false;
+    }, { passive: false });
+
+    button.addEventListener('mousedown', (e) => {
+        if (!gameOver) keys[code] = true;
+    });
+    button.addEventListener('mouseup', (e) => {
+        keys[code] = false;
+    });
+});
+
 playerNameInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
         attemptGameStart();
     }
 });
-// Add a click listener to the canvas container to start the game on mobile tap
 container.addEventListener('click', () => {
     attemptGameStart();
 });
@@ -409,14 +452,12 @@ container.addEventListener('click', () => {
 
 window.addEventListener("resize", ()=>{
     if(!renderer) return;
-    // Recalculate size based on new container dimensions
     const w = container.clientWidth, h = container.clientHeight;
     renderer.setSize(w,h);
     camera.aspect = w/h;
     camera.updateProjectionMatrix();
 });
 
-// Initial call to ensure canvas size is correct on load
 window.dispatchEvent(new Event('resize'));
 </script>
 </body>
