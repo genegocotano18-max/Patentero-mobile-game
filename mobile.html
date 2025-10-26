@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>3D Patintero Challenge</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+<style>
+    @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700&family=Inter:wght@400;700&display=swap');
+    body { font-family: 'Inter', sans-serif; background: linear-gradient(180deg, #001f3f 0%, #004d40 100%); color: #e5e7eb; overflow-x: hidden; }
+    #gameCanvasContainer { width: 100%; max-width: 900px; /* Adjusted height for mobile aspect ratio */ height: min(520px, 100vw * 0.75); background: radial-gradient(circle at center, #1e293b, #0f172a); border-radius: 1rem; box-shadow: 0 0 25px rgba(0, 255, 255, 0.3); margin-bottom: 1rem; }
+    canvas { display: block; border-radius: 1rem; }
+    .dashboard-value { font-family: 'Orbitron', sans-serif; text-shadow: 1px 1px 3px #000; }
+    .neon-border { box-shadow: 0 0 10px #00ffff, 0 0 20px #00bcd4, 0 0 30px #00bcd4; }
+    input:disabled { opacity: 0.6; cursor: not-allowed; }
+
+    /* Touch Control Styles */
+    .control-pad button {
+        touch-action: manipulation; /* Prevents double-tap zoom */
+        user-select: none; /* Prevents text selection */
+        -webkit-user-select: none;
+    }
+</style>
+</head>
+<body class="flex flex-col items-center p-2 sm:p-6">
+
+<h1 class="text-3xl md:text-5xl font-bold text-cyan-400 mb-4 md:mb-6 drop-shadow-lg text-center">
+    🏃‍♂️ 3D Patintero Challenge
+</h1>
+
+<div class="w-full max-w-4xl flex flex-col items-center">
+<div id="gameCanvasContainer" class="relative neon-border"></div>
+
+<div class="w-full bg-gray-900 bg-opacity-80 p-3 rounded-xl flex flex-col md:flex-row justify-between items-center mt-2 md:mt-4">
+    <div class="flex flex-col md:flex-row items-center gap-2 md:gap-4 w-full md:w-auto">
+    <label for="playerNameInput" class="text-white font-semibold text-base md:text-lg">Runner Name:</label>
+    <input id="playerNameInput" type="text" maxlength="15" placeholder="Type name & press Enter"
+        class="p-2 rounded-lg bg-gray-700 text-white border border-cyan-400 w-full md:w-48 text-center focus:outline-none focus:ring-2 focus:ring-cyan-400">
+    </div>
+
+    <div class="flex justify-around md:justify-end gap-4 md:gap-8 mt-3 md:mt-0 text-base md:text-lg w-full md:w-auto">
+    <div>🏆 Score: <span id="scoreDisplay" class="dashboard-value text-yellow-400 text-xl md:text-2xl">0</span></div>
+    <div>❤️ Lives: <span id="livesDisplay" class="dashboard-value text-red-400 text-xl md:text-2xl">3</span></div>
+    </div>
+</div>
+
+<div id="controlPad" class="w-full grid grid-cols-2 gap-4 mt-4 max-w-lg">
+    <div class="flex flex-col items-center justify-center p-2 bg-blue-900/50 rounded-xl border border-blue-400">
+        <h3 class="text-blue-300 font-bold mb-2">Runner Controls (Blue)</h3>
+        <div class="grid grid-cols-3 gap-1 w-2/3 max-w-[150px] aspect-square">
+            <div></div>
+            <button id="upBtn" class="bg-blue-600 hover:bg-blue-500 text-white p-2 rounded-md shadow-lg neon-border">⬆️</button>
+            <div></div>
+
+            <button id="leftBtn" class="bg-blue-600 hover:bg-blue-500 text-white p-2 rounded-md shadow-lg neon-border">⬅️</button>
+            <button id="downBtn" class="bg-blue-600 hover:bg-blue-500 text-white p-2 rounded-md shadow-lg neon-border">⬇️</button>
+            <button id="rightBtn" class="bg-blue-600 hover:bg-blue-500 text-white p-2 rounded-md shadow-lg neon-border">➡️</button>
+        </div>
+    </div>
+    <div class="flex flex-col items-center justify-center p-2 bg-red-900/50 rounded-xl border border-red-400">
+        <h3 class="text-red-300 font-bold mb-2">It Controls (Red)</h3>
+        <div class="grid grid-cols-3 gap-1 w-2/3 max-w-[150px] aspect-square">
+            <div></div>
+            <div></div>
+            <div></div>
+
+            <button id="redLeftBtn" class="bg-red-600 hover:bg-red-500 text-white p-2 rounded-md shadow-lg neon-border col-start-1">A</button>
+            <div></div>
+            <button id="redRightBtn" class="bg-red-600 hover:bg-red-500 text-white p-2 rounded-md shadow-lg neon-border col-start-3">D</button>
+        </div>
+    </div>
+</div>
+
+<div id="messageContainer" class="w-full bg-gray-800 p-4 mt-4 rounded-xl text-center border border-gray-700">
+    <p id="message" class="text-lg font-semibold text-cyan-300">Type your name and press Enter/Tap to begin!</p>
+</div>
+</div>
+
+<script>
+const THREE = window.THREE;
+
+// --- Game Variables ---
+let scene, camera, renderer;
+let player, enemies = [], redPlayer;
+let score = 0, lives = 3, gameOver = true;
+const WORLD_WIDTH = 100, WORLD_HEIGHT = 50;
+const PLAYER_SPEED = 0.3, ENEMY_SPEED = 0.2, RED_PLAYER_SPEED = 0.25;
+const START_LINE_Y = -WORLD_HEIGHT/2 + 5;
+const FAR_LINE_Y = WORLD_HEIGHT/2 - 2;
+let isReturning = false, isInvulnerable = false;
+let gameLoopRef;
+let keys = {};
+let displayName = "";
+let walkCycle = 0;
+const INVULNERABILITY_DURATION = 1500;
+let gameOverFlash;
+
+// UI Elements
+const container = document.getElementById("gameCanvasContainer");
+const playerNameInput = document.getElementById("playerNameInput");
+const message = document.getElementById("message");
+const scoreDisplay = document.getElementById("scoreDisplay");
+const livesDisplay = document.getElementById("livesDisplay");
+const controlPad = document.getElementById("controlPad");
+
+// Control Buttons (New!)
+const controls = {
+    upBtn: document.getElementById('upBtn'),
+    downBtn: document.getElementById('downBtn'),
+    leftBtn: document.getElementById('leftBtn'),
+    rightBtn: document.getElementById('rightBtn'),
+    redLeftBtn: document.getElementById('redLeftBtn'),
+    redRightBtn: document.getElementById('redRightBtn')
+};
+
+// Map button IDs to keyboard codes (New!)
+const buttonKeyMap = {
+    'upBtn': 'ArrowUp',
+    'downBtn': 'ArrowDown',
+    'leftBtn': 'ArrowLeft',
+    'rightBtn': 'ArrowRight',
+    'redLeftBtn': 'KeyA',
+    'redRightBtn': 'KeyD'
+};
+
+// --- 3D Setup ---
+function createCharacter(x, y, bodyColor, headColor) {
+    const group = new THREE.Group();
+    group.position.set(x, y, 0);
+
+    const bodyMat = new THREE.MeshPhongMaterial({ color: bodyColor });
+    const headMat = new THREE.MeshPhongMaterial({ color: headColor });
+
+    // Torso
+    const torso = new THREE.Mesh(new THREE.BoxGeometry(3, 2, 5), bodyMat);
+    torso.position.set(0, 0, 4);
+    group.add(torso);
+
+    // Head
+    const head = new THREE.Mesh(new THREE.BoxGeometry(2.5, 2.5, 2.5), headMat);
+    head.position.set(0, 0, 7.5);
+    group.add(head);
+
+    // Eyes
+    const eyeGeo = new THREE.BoxGeometry(0.4, 0.2, 0.1);
+    const eyeMat = new THREE.MeshBasicMaterial({ color: 0x000000 });
+    const leftEye = new THREE.Mesh(eyeGeo, eyeMat);
+    const rightEye = new THREE.Mesh(eyeGeo, eyeMat);
+    leftEye.position.set(-0.6, 0.5, 8);
+    rightEye.position.set(0.6, 0.5, 8);
+    group.add(leftEye);
+    group.add(rightEye);
+
+    // Mouth
+    const mouthGeo = new THREE.BoxGeometry(1.0, 0.1, 0.1);
+    const mouthMat = new THREE.MeshBasicMaterial({ color: 0x000000 });
+    const mouth = new THREE.Mesh(mouthGeo, mouthMat);
+    mouth.position.set(0, -0.5, 8);
+    group.add(mouth);
+
+    // Arms
+    const armGeo = new THREE.BoxGeometry(1, 1.5, 4);
+    const leftArm = new THREE.Mesh(armGeo, bodyMat);
+    const rightArm = new THREE.Mesh(armGeo, bodyMat);
+    leftArm.position.set(-2.2, 0, 4.5);
+    rightArm.position.set(2.2, 0, 4.5);
+    group.add(leftArm);
+    group.add(rightArm);
+
+    // Legs
+    const legGeo = new THREE.BoxGeometry(1.2, 1.2, 4);
+    const leftLeg = new THREE.Mesh(legGeo, bodyMat);
+    const rightLeg = new THREE.Mesh(legGeo, bodyMat);
+    leftLeg.position.set(-1, 0, 1.5);
+    rightLeg.position.set(1, 0, 1.5);
+    group.add(leftLeg);
+    group.add(rightLeg);
+
+    group.parts = { head, torso, leftArm, rightArm, leftLeg, rightLeg, leftEye, rightEye, mouth };
+    group.rotation.y = 0;
+    return group;
+}
+
+// --- Court ---
+function createCourt() {
+    const ground = new THREE.Mesh(new THREE.PlaneGeometry(WORLD_WIDTH, WORLD_HEIGHT), new THREE.MeshLambertMaterial({ color: 0xc8e6c8 }));
+    ground.rotation.x = -Math.PI/2;
+    scene.add(ground);
+
+    const lineMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+    [-10,0,10].forEach(y => {
+        const line = new THREE.Mesh(new THREE.BoxGeometry(WORLD_WIDTH,0.5,0.1), lineMat);
+        line.position.set(0,y,0.05);
+        scene.add(line);
+    });
+
+    const farLine = new THREE.Mesh(new THREE.BoxGeometry(WORLD_WIDTH,1,0.5), new THREE.MeshBasicMaterial({ color: 0xFFFF00, emissive:0xFFFF00 }));
+    farLine.position.set(0, FAR_LINE_Y, 0.2);
+    scene.add(farLine);
+
+    const startLine = new THREE.Mesh(new THREE.BoxGeometry(WORLD_WIDTH,1,0.5), new THREE.MeshBasicMaterial({ color: 0x00FF00, emissive:0x00FF00 }));
+    startLine.position.set(0, START_LINE_Y, 0.2);
+    scene.add(startLine);
+}
+
+function updateDashboard(){ scoreDisplay.textContent = score; livesDisplay.textContent = lives; }
+
+// --- Initialize Game ---
+function initGame(){
+    displayName = playerNameInput.value.trim();
+    if(!displayName) return;
+
+    if(renderer){ container.removeChild(renderer.domElement); renderer.dispose(); }
+
+    scene = new THREE.Scene(); scene.background = new THREE.Color(0x001f3f);
+
+    // Use current container dimensions
+    const w = container.clientWidth;
+    const h = container.clientHeight;
+    const aspect = w/h;
+    camera = new THREE.PerspectiveCamera(75, aspect, 0.1, 1000);
+    camera.position.set(0,-40,15); camera.lookAt(0,0,0);
+
+    renderer = new THREE.WebGLRenderer({antialias:true});
+    renderer.setSize(w,h); // Set initial size
+    container.appendChild(renderer.domElement);
+
+    const light = new THREE.DirectionalLight(0xffffff,1); light.position.set(10,10,20); scene.add(light);
+    scene.add(new THREE.AmbientLight(0xffffff,0.5));
+
+    createCourt();
+
+    const flashGeo = new THREE.PlaneGeometry(WORLD_WIDTH,WORLD_HEIGHT);
+    const flashMat = new THREE.MeshBasicMaterial({ color:0xff0000, transparent:true, opacity:0 });
+    gameOverFlash = new THREE.Mesh(flashGeo, flashMat);
+    gameOverFlash.rotation.x = -Math.PI/2; gameOverFlash.position.z=10;
+    scene.add(gameOverFlash);
+
+    player = createCharacter(0, START_LINE_Y, 0x3B82F6,0xBFDBFE); scene.add(player);
+
+    enemies = [];
+    [-10,0,10].forEach((y,i)=>{
+        const e = createCharacter(0,y,0xEF4444,0xFCA5A5);
+        e.userData = { dir: i%2===0?1:-1 };
+        enemies.push(e); scene.add(e);
+    });
+
+    redPlayer = createCharacter(0,10,0xFF0000,0xFF7777); scene.add(redPlayer);
+
+    score = 0; lives=3; gameOver=false; updateDashboard();
+    message.textContent = `${displayName}, use the on-screen controls or keys!`;
+    playerNameInput.disabled=true; // Disable input on start
+    gameLoopRef = requestAnimationFrame(gameLoop);
+}
+
+// --- Game Loop ---
+function update(){
+    if(gameOver) return;
+    walkCycle += 0.3;
+    let moving=false;
+
+    // --- Player movement ---
+    if(keys["ArrowUp"]){ player.position.y += PLAYER_SPEED; moving=true; }
+    if(keys["ArrowDown"]){ player.position.y -= PLAYER_SPEED; moving=true; }
+    if(keys["ArrowLeft"]){ player.position.x -= PLAYER_SPEED; moving=true; }
+    if(keys["ArrowRight"]){ player.position.x += PLAYER_SPEED; moving=true; }
+
+    // Bounds
+    player.position.y = Math.min(Math.max(player.position.y, START_LINE_Y), FAR_LINE_Y);
+    player.position.x = Math.min(Math.max(player.position.x,-WORLD_WIDTH/2+3),WORLD_WIDTH/2-3);
+
+    // Walk animation (simplified for brevity)
+    const swing = Math.sin(walkCycle)*0.7;
+    if(moving){
+        player.parts.leftArm.rotation.x = swing;
+        player.parts.rightArm.rotation.x = -swing;
+        player.parts.leftLeg.rotation.x = -swing;
+        player.parts.rightLeg.rotation.x = swing;
+        player.parts.torso.position.z = 4 + Math.abs(Math.sin(walkCycle)*0.2);
+
+        if(keys["ArrowLeft"]) player.parts.head.rotation.y=Math.PI/4;
+        else if(keys["ArrowRight"]) player.parts.head.rotation.y=-Math.PI/4;
+        else player.parts.head.rotation.y=0;
+
+        player.parts.mouth.scale.x=1.5;
+    } else {
+        player.parts.leftArm.rotation.x=0; player.parts.rightArm.rotation.x=0;
+        player.parts.leftLeg.rotation.x=0; player.parts.rightLeg.rotation.x=0;
+        player.parts.head.rotation.y=0;
+        player.parts.mouth.scale.x=1;
+    }
+
+    // --- Red player ---
+    if(keys["KeyA"]) redPlayer.position.x -= RED_PLAYER_SPEED;
+    if(keys["KeyD"]) redPlayer.position.x += RED_PLAYER_SPEED;
+    redPlayer.position.x = Math.min(Math.max(redPlayer.position.x, -WORLD_WIDTH/2+5), WORLD_WIDTH/2-5);
+
+    // --- Enemies movement ---
+    enemies.forEach(e=>{
+        e.position.x += e.userData.dir*ENEMY_SPEED;
+        if(e.position.x>WORLD_WIDTH/2-5||e.position.x<-WORLD_WIDTH/2+5) e.userData.dir*=-1;
+
+        // Enemy frown
+        e.parts.mouth.scale.x=0.5;
+    });
+
+    // --- Collision detection ---
+    [...enemies, redPlayer].forEach(e=>{
+        if(!isInvulnerable && Math.abs(e.position.x-player.position.x)<4 && Math.abs(e.position.y-player.position.y)<4){
+            loseLife();
+        }
+    });
+
+    // --- Round logic ---
+    if(player.position.y >= FAR_LINE_Y && !isReturning){ isReturning=true; message.textContent="Now return to the green line!"; }
+    if(isReturning && player.position.y <= START_LINE_Y){
+        score+=100; updateDashboard(); isReturning=false;
+        player.position.set(0, START_LINE_Y, 0); message.textContent=`✅ Round cleared! +100 points.`;
+    }
+}
+
+// --- Lose Life ---
+function loseLife(){
+    lives--; updateDashboard();
+    gameOverFlash.material.opacity=0.5;
+    setTimeout(()=>gameOverFlash.material.opacity=0,400);
+
+    // Shocked face
+    player.parts.mouth.scale.set(0.5,0.5,1);
+    player.parts.leftEye.scale.set(1,1.5,1);
+    player.parts.rightEye.scale.set(1,1.5,1);
+
+    if(lives<=0){
+        message.textContent=`💀 ${displayName} got tagged! Final Score: ${score}`;
+        gameOver=true;
+        playerNameInput.disabled=false; // Re-enable input
+    } else {
+        player.position.set(0, START_LINE_Y, 0);
+        isInvulnerable=true;
+        setTimeout(()=>{
+            isInvulnerable=false;
+            player.parts.mouth.scale.set(1,1,1);
+            player.parts.leftEye.scale.set(1,1,1);
+            player.parts.rightEye.scale.set(1,1,1);
+        }, INVULNERABILITY_DURATION);
+    }
+}
+
+// --- Game Loop Renderer ---
+function gameLoop(){ update(); renderer.render(scene,camera); if(!gameOver) gameLoopRef=requestAnimationFrame(gameLoop); }
+
+// --- Event Listeners ---
+
+// Touch/Click Control Handlers (New!)
+Object.keys(controls).forEach(key => {
+    const button = controls[key];
+    const code = buttonKeyMap[key];
+
+    // For touch devices (touchstart/touchend)
+    button.addEventListener('touchstart', (e) => {
+        e.preventDefault(); // Prevent scrolling/default behavior
+        if (!gameOver) keys[code] = true;
+    }, { passive: false });
+
+    button.addEventListener('touchend', (e) => {
+        e.preventDefault();
+        keys[code] = false;
+    }, { passive: false });
+
+    // For mouse/desktop (mousedown/mouseup as fallback)
+    button.addEventListener('mousedown', (e) => {
+        if (!gameOver) keys[code] = true;
+    });
+    button.addEventListener('mouseup', (e) => {
+        keys[code] = false;
+    });
+});
+
+// Start Game via Enter key or a dedicated Tap button
+function attemptGameStart() {
+    displayName = playerNameInput.value.trim();
+    if(displayName && gameOver){
+        initGame();
+    }
+}
+
+document.addEventListener("keydown", e=>{
+    if(gameOver && e.code==="Enter"){
+        attemptGameStart();
+    }
+    keys[e.code]=true;
+});
+
+document.addEventListener("keyup", e=>keys[e.code]=false);
+
+// New: Start button for mobile users
+playerNameInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+        attemptGameStart();
+    }
+});
+// Add a click listener to the canvas container to start the game on mobile tap
+container.addEventListener('click', () => {
+    attemptGameStart();
+});
+
+
+window.addEventListener("resize", ()=>{
+    if(!renderer) return;
+    // Recalculate size based on new container dimensions
+    const w = container.clientWidth, h = container.clientHeight;
+    renderer.setSize(w,h);
+    camera.aspect = w/h;
+    camera.updateProjectionMatrix();
+});
+
+// Initial call to ensure canvas size is correct on load
+window.dispatchEvent(new Event('resize'));
+</script>
+</body>
+</html>
